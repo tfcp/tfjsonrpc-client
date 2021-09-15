@@ -34,7 +34,6 @@ func JsonRpcBreakGet(url, method string) (bool, bool) {
 		return false, false
 	}
 	if breakTimes > jsonRpcBreakTimes {
-		fmt.Println("start dry run")
 		if true == limiting() {
 			// break opened we try dry-run 1%
 			// dry-run success
