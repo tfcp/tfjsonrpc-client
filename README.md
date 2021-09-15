@@ -1,4 +1,4 @@
-# jsonrpc
+# tfjsonrpc-client
 
 ## 1. intro
 this is a funny client for jsonrpc. it can support timeout,breaker...
