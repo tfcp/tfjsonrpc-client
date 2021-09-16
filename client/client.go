@@ -89,14 +89,6 @@ func JsonRpc(ctx context.Context, url, method string, params interface{}) (*Json
 			jsonRpcRes: nil,
 			err:        nil,
 		}
-		// break logic
-		isBreak, isDryRun := JsonRpcBreakGet(url, method)
-		if !isBreak {
-			resJR.jsonRpcRes = new(JsonRpcResponse)
-			resJR.jsonRpcRes.Result = ""
-			ch <- resJR
-			return
-		}
 
 		rq, err := json.Marshal(jsonRpcReq)
 		if err != nil {
@@ -123,10 +115,6 @@ func JsonRpc(ctx context.Context, url, method string, params interface{}) (*Json
 			ch <- resJR
 			return
 		}
-		// break value set
-		JsonRpcBreakSet(url, method, rs)
-		// dry run breaker can close
-		JsonRpcDryRun(url, method, isDryRun, rs)
 		ch <- resJR
 	}()
 	select {
