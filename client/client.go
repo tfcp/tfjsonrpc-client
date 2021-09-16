@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/go-kratos/kratos/pkg/log"
 	errs "github.com/pkg/errors"
 	"io/ioutil"
 	"net/http"
