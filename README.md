@@ -34,6 +34,6 @@ this is a funny client for jsonrpc-client. it can support timeout,breaker ...
 |  ----  | ----  |----|
 |  Threshold | breaker reached value. key include (jsonRpcUrl+jsonRpc)  | 500 |
 |  Expire  | breakerKey expired time. |5 min|
-|  DryRunPercent  | when breaker is opened, there is ?% requests can pass breaker, if one of those success, breaker is closed. |1%|
+|  DryRunPercent  | when breaker is opened, there is ?% requests can pass breaker, if one of those success, breaker is closed. |10%|
 
 
