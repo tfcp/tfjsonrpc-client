@@ -182,14 +182,15 @@ func (this *JsonRpcClient) jsonRpcBase(ctx context.Context, url, method string, 
 	select {
 	case res := <-ch:
 		if res.err != nil {
-			// reached breaker condition
+			// reached breaker condition (boolean is false)
 			if res.err.Error() == breakerErrMsg {
-				return nil, res.err, true
+				jsonRpcRes.Result = breakerErrMsg
+				return jsonRpcRes, nil, false
 			}
-			return nil, res.err, false
+			return nil, res.err, true
 		}
 		jsonRpcRes = res.jsonRpcRes
-		return jsonRpcRes, nil, false
+		return jsonRpcRes, nil, true
 	case <-time.After(jsonRpcTimeout):
 		// timeout watch
 		errMsg := fmt.Sprintf("jsonrpc timeout: url:%v, method:%v,params:%v", url, method, params)
