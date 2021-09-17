@@ -3,8 +3,10 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	errs "github.com/pkg/errors"
+	"github.com/tfcp/tfgo-breaker/breaker"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -32,6 +34,15 @@ type JsonRpcError struct {
 	Data    interface{} `json:"data"`
 }
 
+type JsonClientReq struct {
+	ctx         context.Context
+	url, method string
+	params      interface{}
+}
+
+type JsonRpcClient struct {
+}
+
 const (
 	// JsonRpc timeout setting
 	jsonRpcTimeout = 5 * time.Second
@@ -40,8 +51,9 @@ const (
 )
 
 var (
-	requestRpc  *sync.Pool
-	responseRpc *sync.Pool
+	requestRpc    *sync.Pool
+	responseRpc   *sync.Pool
+	breakerErrMsg = "the breaker condition is reached"
 )
 
 func init() {
@@ -70,9 +82,51 @@ func init() {
 }
 
 // JsonRpc do the request using JsonRpc protocol.
-func JsonRpc(ctx context.Context, url, method string, params interface{}) (*JsonRpcResponse, error) {
+func (this *JsonRpcClient) Call(ctx context.Context, url, method string, params interface{}) (*JsonRpcResponse, error) {
+	cacheKey := fmt.Sprintf("%s#%s", url, method)
+	// create breaker (default threshold:500 breakerCacheExpired:5min dryRunPercent: 1/100)
+	breakerConf := breaker.NewBreakConf(cacheKey, 500,
+		5*60*time.Second,
+		10,
+		this.normalJsonRpcFunc,
+		this.breakJsonRpcFunc)
+	breakerJsonRpc := breaker.NewBreaker(breakerConf)
+	// jsonRpc request
+	jsonReq := &JsonClientReq{
+		ctx:    ctx,
+		url:    url,
+		method: method,
+		params: params,
+	}
+	res, err := breakerJsonRpc.Run(jsonReq)
+	return res.(*JsonRpcResponse), err
+}
+
+// breaker normal logic
+func (this *JsonRpcClient) normalJsonRpcFunc(req interface{}) (interface{}, error, bool) {
+	breakerReq := req.(*JsonClientReq)
+	return this.jsonRpcBase(breakerReq.ctx, breakerReq.url, breakerReq.method, breakerReq.params)
+}
+
+// breaker opened logic
+func (this *JsonRpcClient) breakJsonRpcFunc(req interface{}) (interface{}, error) {
+	breakerRes := responseRpc.Get().(*JsonRpcResponse)
+	defer func() {
+		responseRpc.Put(breakerRes)
+	}()
+	breakerRes.Result = "breakerIsOpened"
+	//err := errors.New("breaker is opened...")
+	return breakerRes, nil
+}
+
+// JsonRpc base function
+func (this *JsonRpcClient) jsonRpcBase(ctx context.Context, url, method string, params interface{}) (*JsonRpcResponse, error, bool) {
 	jsonRpcRes := responseRpc.Get().(*JsonRpcResponse)
 	jsonRpcReq := requestRpc.Get().(JsonRpcRequest)
+	defer func() {
+		requestRpc.Put(jsonRpcReq)
+		responseRpc.Put(jsonRpcRes)
+	}()
 	jsonRpcReq.Method = method
 	jsonRpcReq.Params = params
 	defer func() {
@@ -102,6 +156,14 @@ func JsonRpc(ctx context.Context, url, method string, params interface{}) (*Json
 			ch <- resJR
 			return
 		}
+		// breaker condition reached, breaker value add 1
+		// when httpStatus > 500 too many times, the breaker will open
+		if rs.StatusCode > 500 {
+			err := errors.New(breakerErrMsg)
+			resJR.err = err
+			ch <- resJR
+			return
+		}
 		defer rs.Body.Close()
 		c, err := ioutil.ReadAll(rs.Body)
 		if err != nil {
@@ -120,14 +182,18 @@ func JsonRpc(ctx context.Context, url, method string, params interface{}) (*Json
 	select {
 	case res := <-ch:
 		if res.err != nil {
-			return nil, res.err
+			// reached breaker condition
+			if res.err.Error() == breakerErrMsg {
+				return nil, res.err, true
+			}
+			return nil, res.err, false
 		}
 		jsonRpcRes = res.jsonRpcRes
-		return jsonRpcRes, nil
+		return jsonRpcRes, nil, false
 	case <-time.After(jsonRpcTimeout):
 		// timeout watch
 		errMsg := fmt.Sprintf("jsonrpc timeout: url:%v, method:%v,params:%v", url, method, params)
-		return nil, errs.New(errMsg)
+		return nil, errs.New(errMsg), false
 	}
 }
 
